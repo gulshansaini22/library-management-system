@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Library Login</title>
+</head>
+<body>
+    <h2>Library Management System</h2>
+    
+    <h3>Login</h3>
+    Email: <input type="text" id="email" value="admin@library.com"><br><br>
+    Password: <input type="password" id="password" value="admin123"><br><br>
+    <button onclick="login()">Login</button>
+    
+    <h3>Response:</h3>
+    <pre id="result"></pre>
+
+    <script>
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            const response = await fetch('http://localhost:8081/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email: email, password: password})
+            });
+            
+            const data = await response.json();
+            document.getElementById('result').innerHTML = JSON.stringify(data, null, 2);
+        }
+    </script>
+</body>
+</html>
