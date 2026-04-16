@@ -13,6 +13,7 @@ function App() {
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState('books');
   const [issuedBooks, setIssuedBooks] = useState([]);
+  const [totalFine, setTotalFine] = useState(0);
   const [newBook, setNewBook] = useState({
     title: '',
     author: '',
@@ -22,20 +23,50 @@ function App() {
   });
 
   const API_URL = 'http://localhost:8081';
+  const FINE_PER_DAY = 50; // ₹50 per day
 
   // Load issued books from localStorage on app start
   useEffect(() => {
     const savedIssuedBooks = localStorage.getItem('issuedBooks');
-    console.log('Loaded from localStorage:', savedIssuedBooks);
     if (savedIssuedBooks) {
-      setIssuedBooks(JSON.parse(savedIssuedBooks));
+      const parsedBooks = JSON.parse(savedIssuedBooks);
+      setIssuedBooks(parsedBooks);
     }
   }, []);
 
   // Save issued books to localStorage whenever they change
   useEffect(() => {
-    console.log('Saving to localStorage:', issuedBooks);
     localStorage.setItem('issuedBooks', JSON.stringify(issuedBooks));
+  }, [issuedBooks]);
+
+  // Calculate fine for a book
+  const calculateFine = (dueDateStr) => {
+    const dueDate = new Date(dueDateStr);
+    const today = new Date();
+    if (today > dueDate) {
+      const diffTime = Math.abs(today - dueDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays * FINE_PER_DAY;
+    }
+    return 0;
+  };
+
+  // Get days remaining or overdue
+  const getDaysStatus = (dueDateStr) => {
+    const dueDate = new Date(dueDateStr);
+    const today = new Date();
+    const diffTime = dueDate - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  // Update total fine whenever issuedBooks changes
+  useEffect(() => {
+    let fine = 0;
+    issuedBooks.forEach(book => {
+      fine += calculateFine(book.dueDate);
+    });
+    setTotalFine(fine);
   }, [issuedBooks]);
 
   const fetchBooks = async () => {
@@ -71,6 +102,10 @@ function App() {
       );
       setBooks(updatedBooks);
       
+      // Calculate due date (14 days from now)
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 14);
+      
       // Add to issued books
       const newIssuedBook = {
         id: Date.now(),
@@ -82,15 +117,17 @@ function App() {
         issuedToName: user?.name || user?.email,
         issuedToEmail: user?.email,
         issueDate: new Date().toLocaleDateString(),
-        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        status: 'ISSUED'
+        dueDate: dueDate.toLocaleDateString(),
+        dueDateRaw: dueDate.toISOString(),
+        status: 'ISSUED',
+        fine: 0
       };
       
       const updatedIssuedBooks = [...issuedBooks, newIssuedBook];
       setIssuedBooks(updatedIssuedBooks);
       
-      setMessage(`✅ Successfully issued "${book.title}"!`);
-      setTimeout(() => setMessage(''), 3000);
+      setMessage(`✅ Successfully issued "${book.title}"! Due date: ${dueDate.toLocaleDateString()}`);
+      setTimeout(() => setMessage(''), 4000);
     } else {
       setMessage('❌ Book is not available for issue');
       setTimeout(() => setMessage(''), 3000);
@@ -100,6 +137,9 @@ function App() {
   const returnBook = (issueId) => {
     const issuedBook = issuedBooks.find(b => b.id === issueId);
     if (issuedBook) {
+      const fine = calculateFine(issuedBook.dueDate);
+      const daysStatus = getDaysStatus(issuedBook.dueDate);
+      
       // Update book availability back to available
       const updatedBooks = books.map(b => 
         String(b.id) === String(issuedBook.bookId) ? { ...b, available: 'true', quantity: String(parseInt(b.quantity) + 1) } : b
@@ -110,8 +150,12 @@ function App() {
       const updatedIssuedBooks = issuedBooks.filter(b => b.id !== issueId);
       setIssuedBooks(updatedIssuedBooks);
       
-      setMessage(`✅ Successfully returned "${issuedBook.title}"!`);
-      setTimeout(() => setMessage(''), 3000);
+      if (fine > 0) {
+        setMessage(`✅ Returned "${issuedBook.title}"! Late by ${-daysStatus} days. Fine: ₹${fine}`);
+      } else {
+        setMessage(`✅ Successfully returned "${issuedBook.title}"! Thank you.`);
+      }
+      setTimeout(() => setMessage(''), 4000);
     } else {
       setMessage('❌ Book return failed');
       setTimeout(() => setMessage(''), 3000);
@@ -227,7 +271,7 @@ function App() {
     return (
       <div className="container">
         <div className="auth-box">
-          <h1>📚 Library Management System</h1>
+          <h1> Library Management System</h1>
           <h2>{isRegistering ? 'Register' : 'Login'}</h2>
           {message && <div className="message">{message}</div>}
           
@@ -274,22 +318,21 @@ function App() {
 
   // Main Library Page
   const isAdmin = user?.role === 'ADMIN';
-  
-  // Filter issued books for current user
   const myIssuedBooks = issuedBooks.filter(book => book.issuedBy === user?.email);
   
-  console.log('Current user:', user);
-  console.log('All issued books:', issuedBooks);
-  console.log('Is Admin:', isAdmin);
-  console.log('My issued books:', myIssuedBooks);
+  // Calculate my total fine
+  const myTotalFine = myIssuedBooks.reduce((total, book) => total + calculateFine(book.dueDate), 0);
 
   return (
     <div className="container">
       <div className="header">
-        <h1>📚 Library Management System</h1>
+        <h1> Library Management System</h1>
         <div className="user-info">
           <span>👋 Welcome, {user?.name || user?.email}!</span>
           <span className="role-badge">{isAdmin ? '👑 ADMIN' : '📖 USER'}</span>
+          {!isAdmin && myTotalFine > 0 && (
+            <span className="fine-badge">💰 Fine: ₹{myTotalFine}</span>
+          )}
           <button className="logout-btn" onClick={handleLogout}>🚪 Logout</button>
         </div>
       </div>
@@ -301,6 +344,7 @@ function App() {
         </button>
         <button className={activeTab === 'issued' ? 'tab active' : 'tab'} onClick={() => setActiveTab('issued')}>
           📋 My Issued Books ({myIssuedBooks.length})
+          {myTotalFine > 0 && <span className="tab-badge">₹{myTotalFine}</span>}
         </button>
         {isAdmin && (
           <button className={activeTab === 'admin' ? 'tab active' : 'tab'} onClick={() => setActiveTab('admin')}>
@@ -355,10 +399,15 @@ function App() {
         </div>
       )}
 
-      {/* My Issued Books Tab */}
+      {/* My Issued Books Tab with Fine Display */}
       {activeTab === 'issued' && (
         <div className="issued-section">
           <h2>📋 My Issued Books</h2>
+          {myTotalFine > 0 && (
+            <div className="fine-warning">
+              ⚠️ Total Fine Accumulated: <strong>₹{myTotalFine}</strong>
+            </div>
+          )}
           {message && <div className="message">{message}</div>}
           
           {myIssuedBooks.length === 0 ? (
@@ -368,33 +417,49 @@ function App() {
             </div>
           ) : (
             <div className="books-grid">
-              {myIssuedBooks.map((book) => (
-                <div key={book.id} className="book-card">
-                  <h3>{book.title}</h3>
-                  <p><strong>✍️ Author:</strong> {book.author}</p>
-                  <p><strong>📅 Issue Date:</strong> {book.issueDate}</p>
-                  <p><strong>⏰ Due Date:</strong> {book.dueDate}</p>
-                  <p><strong>Status:</strong> <span className="available">Currently Issued</span></p>
-                  <button className="return-btn" onClick={() => returnBook(book.id)}>
-                    ↩️ Return Book
-                  </button>
-                </div>
-              ))}
+              {myIssuedBooks.map((book) => {
+                const daysStatus = getDaysStatus(book.dueDate);
+                const fine = calculateFine(book.dueDate);
+                const isOverdue = daysStatus < 0;
+                
+                return (
+                  <div key={book.id} className={`book-card ${isOverdue ? 'overdue-card' : ''}`}>
+                    <h3>{book.title}</h3>
+                    <p><strong>✍️ Author:</strong> {book.author}</p>
+                    <p><strong>📅 Issue Date:</strong> {book.issueDate}</p>
+                    <p><strong>⏰ Due Date:</strong> {book.dueDate}</p>
+                    <p className={isOverdue ? 'overdue' : daysStatus <= 3 ? 'warning' : 'available'}>
+                      {isOverdue ? (
+                        `⚠️ OVERDUE by ${-daysStatus} days`
+                      ) : daysStatus <= 3 ? (
+                        `⚠️ Due in ${daysStatus} days`
+                      ) : (
+                        `✅ ${daysStatus} days remaining`
+                      )}
+                    </p>
+                    {fine > 0 && (
+                      <p className="fine-amount">💰 Late Fine: ₹{fine}</p>
+                    )}
+                    <button className="return-btn" onClick={() => returnBook(book.id)}>
+                      ↩️ Return Book
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* Admin Panel - Shows ALL issued books */}
+      {/* Admin Panel */}
       {activeTab === 'admin' && isAdmin && (
         <div className="admin-section">
           <h2>👑 Admin Control Panel</h2>
           
-          {/* Show issued books count for debugging */}
           <div className="admin-card" style={{marginBottom: '20px', background: '#e3f2fd'}}>
             <h3>📊 System Status</h3>
-            <p><strong>Total Issued Books in System:</strong> {issuedBooks.length}</p>
-            <p><strong>Books issued by users:</strong> {issuedBooks.map(b => b.title).join(', ') || 'None'}</p>
+            <p><strong>Total Issued Books:</strong> {issuedBooks.length}</p>
+            <p><strong>Total Fines Collected:</strong> ₹{issuedBooks.reduce((total, book) => total + calculateFine(book.dueDate), 0)}</p>
           </div>
           
           <div className="admin-actions">
@@ -436,20 +501,22 @@ function App() {
             <div className="admin-card">
               <h3>📊 Currently Issued Books ({issuedBooks.length})</h3>
               {issuedBooks.length === 0 ? (
-                <p>❌ No books currently issued. Issue a book as a user first!</p>
+                <p>❌ No books currently issued.</p>
               ) : (
-                issuedBooks.map((book) => (
-                  <div key={book.id} style={{borderTop: '1px solid #ddd', marginTop: '10px', paddingTop: '10px'}}>
-                    <p><strong>📖 {book.title}</strong></p>
-                    <p>👤 Issued to: {book.issuedToName}</p>
-                    <p>📧 Email: {book.issuedBy}</p>
-                    <p>📅 Issue Date: {book.issueDate}</p>
-                    <p>⏰ Due Date: {book.dueDate}</p>
-                    <button className="return-btn" style={{marginTop: '5px', padding: '5px 10px'}} onClick={() => returnBook(book.id)}>
-                      ↩️ Return Book
-                    </button>
-                  </div>
-                ))
+                issuedBooks.map((book) => {
+                  const fine = calculateFine(book.dueDate);
+                  return (
+                    <div key={book.id} style={{borderTop: '1px solid #ddd', marginTop: '10px', paddingTop: '10px'}}>
+                      <p><strong>📖 {book.title}</strong></p>
+                      <p>👤 Issued to: {book.issuedToName}</p>
+                      <p>📅 Due Date: {book.dueDate}</p>
+                      {fine > 0 && <p className="fine-amount">💰 Fine: ₹{fine}</p>}
+                      <button className="return-btn" style={{marginTop: '5px', padding: '5px 10px'}} onClick={() => returnBook(book.id)}>
+                        ↩️ Return Book
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
             
@@ -458,6 +525,7 @@ function App() {
               <p><strong>📚 Total Books:</strong> {books.length}</p>
               <p><strong>✅ Available Books:</strong> {books.filter(b => b.available === 'true').length}</p>
               <p><strong>❌ Currently Issued:</strong> {issuedBooks.length}</p>
+              <p><strong>💰 Total Fines:</strong> ₹{issuedBooks.reduce((total, book) => total + calculateFine(book.dueDate), 0)}</p>
             </div>
           </div>
           
