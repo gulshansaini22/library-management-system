@@ -13,8 +13,30 @@ function App() {
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState('books');
   const [issuedBooks, setIssuedBooks] = useState([]);
+  const [newBook, setNewBook] = useState({
+    title: '',
+    author: '',
+    isbn: '',
+    category: '',
+    quantity: 1
+  });
 
   const API_URL = 'http://localhost:8081';
+
+  // Load issued books from localStorage on app start
+  useEffect(() => {
+    const savedIssuedBooks = localStorage.getItem('issuedBooks');
+    console.log('Loaded from localStorage:', savedIssuedBooks);
+    if (savedIssuedBooks) {
+      setIssuedBooks(JSON.parse(savedIssuedBooks));
+    }
+  }, []);
+
+  // Save issued books to localStorage whenever they change
+  useEffect(() => {
+    console.log('Saving to localStorage:', issuedBooks);
+    localStorage.setItem('issuedBooks', JSON.stringify(issuedBooks));
+  }, [issuedBooks]);
 
   const fetchBooks = async () => {
     try {
@@ -43,22 +65,31 @@ function App() {
   const issueBook = (bookId) => {
     const book = books.find(b => b.id === bookId);
     if (book && book.available === 'true') {
+      // Update book availability
       const updatedBooks = books.map(b => 
-        b.id === bookId ? { ...b, available: 'false', quantity: parseInt(b.quantity) - 1 } : b
+        b.id === bookId ? { ...b, available: 'false', quantity: String(parseInt(b.quantity) - 1) } : b
       );
       setBooks(updatedBooks);
-      setMessage(`✅ Successfully issued "${book.title}"! Please return by due date.`);
       
+      // Add to issued books
       const newIssuedBook = {
         id: Date.now(),
         bookId: bookId,
         title: book.title,
+        author: book.author,
+        isbn: book.isbn,
+        issuedBy: user?.email || 'Unknown',
+        issuedToName: user?.name || user?.email,
+        issuedToEmail: user?.email,
         issueDate: new Date().toLocaleDateString(),
         dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString(),
         status: 'ISSUED'
       };
-      setIssuedBooks([...issuedBooks, newIssuedBook]);
       
+      const updatedIssuedBooks = [...issuedBooks, newIssuedBook];
+      setIssuedBooks(updatedIssuedBooks);
+      
+      setMessage(`✅ Successfully issued "${book.title}"!`);
       setTimeout(() => setMessage(''), 3000);
     } else {
       setMessage('❌ Book is not available for issue');
@@ -66,15 +97,20 @@ function App() {
     }
   };
 
-  const returnBook = (bookId) => {
-    const issuedBook = issuedBooks.find(b => b.id === bookId);
+  const returnBook = (issueId) => {
+    const issuedBook = issuedBooks.find(b => b.id === issueId);
     if (issuedBook) {
+      // Update book availability back to available
       const updatedBooks = books.map(b => 
-        b.id == issuedBook.bookId ? { ...b, available: 'true', quantity: parseInt(b.quantity) + 1 } : b
+        String(b.id) === String(issuedBook.bookId) ? { ...b, available: 'true', quantity: String(parseInt(b.quantity) + 1) } : b
       );
       setBooks(updatedBooks);
-      setIssuedBooks(issuedBooks.filter(b => b.id !== bookId));
-      setMessage(`✅ Successfully returned "${issuedBook.title}"! Thank you.`);
+      
+      // Remove from issued books
+      const updatedIssuedBooks = issuedBooks.filter(b => b.id !== issueId);
+      setIssuedBooks(updatedIssuedBooks);
+      
+      setMessage(`✅ Successfully returned "${issuedBook.title}"!`);
       setTimeout(() => setMessage(''), 3000);
     } else {
       setMessage('❌ Book return failed');
@@ -82,9 +118,52 @@ function App() {
     }
   };
 
-  const addBook = () => {
-    setMessage('Add book feature - Coming soon!');
+  const addBook = async () => {
+    if (!newBook.title || !newBook.author || !newBook.isbn) {
+      setMessage('❌ Please fill all required fields!');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/api/books/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBook)
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessage(`✅ ${data.message}`);
+        fetchBooks();
+        setNewBook({ title: '', author: '', isbn: '', category: '', quantity: 1 });
+      } else {
+        setMessage('❌ Failed to add book: ' + (data.message || 'Unknown error'));
+      }
+    } catch (error) {
+      setMessage('Error: ' + error.message);
+    }
     setTimeout(() => setMessage(''), 3000);
+  };
+
+  const deleteBook = async (bookId) => {
+    if (window.confirm('Are you sure you want to delete this book?')) {
+      try {
+        const response = await fetch(`${API_URL}/api/books/delete/${bookId}`, {
+          method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+          setMessage(`✅ ${data.message}`);
+          fetchBooks();
+        } else {
+          setMessage('❌ Failed to delete book');
+        }
+      } catch (error) {
+        setMessage('Error: ' + error.message);
+      }
+      setTimeout(() => setMessage(''), 3000);
+    }
   };
 
   const handleLogin = async (e) => {
@@ -136,7 +215,6 @@ function App() {
     setIsLoggedIn(false);
     setUser(null);
     setBooks([]);
-    setIssuedBooks([]);
     setMessage('Logged out successfully');
   };
 
@@ -197,6 +275,14 @@ function App() {
   // Main Library Page
   const isAdmin = user?.role === 'ADMIN';
   
+  // Filter issued books for current user
+  const myIssuedBooks = issuedBooks.filter(book => book.issuedBy === user?.email);
+  
+  console.log('Current user:', user);
+  console.log('All issued books:', issuedBooks);
+  console.log('Is Admin:', isAdmin);
+  console.log('My issued books:', myIssuedBooks);
+
   return (
     <div className="container">
       <div className="header">
@@ -214,7 +300,7 @@ function App() {
           📖 Books
         </button>
         <button className={activeTab === 'issued' ? 'tab active' : 'tab'} onClick={() => setActiveTab('issued')}>
-          📋 My Issued Books
+          📋 My Issued Books ({myIssuedBooks.length})
         </button>
         {isAdmin && (
           <button className={activeTab === 'admin' ? 'tab active' : 'tab'} onClick={() => setActiveTab('admin')}>
@@ -269,22 +355,23 @@ function App() {
         </div>
       )}
 
-      {/* Issued Books Tab */}
+      {/* My Issued Books Tab */}
       {activeTab === 'issued' && (
         <div className="issued-section">
           <h2>📋 My Issued Books</h2>
           {message && <div className="message">{message}</div>}
           
-          {issuedBooks.length === 0 ? (
+          {myIssuedBooks.length === 0 ? (
             <div className="empty-state">
               <p>📭 No books issued yet.</p>
               <p>Go to <strong>Books</strong> tab to issue a book!</p>
             </div>
           ) : (
             <div className="books-grid">
-              {issuedBooks.map((book) => (
+              {myIssuedBooks.map((book) => (
                 <div key={book.id} className="book-card">
                   <h3>{book.title}</h3>
+                  <p><strong>✍️ Author:</strong> {book.author}</p>
                   <p><strong>📅 Issue Date:</strong> {book.issueDate}</p>
                   <p><strong>⏰ Due Date:</strong> {book.dueDate}</p>
                   <p><strong>Status:</strong> <span className="available">Currently Issued</span></p>
@@ -298,36 +385,79 @@ function App() {
         </div>
       )}
 
-      {/* Admin Panel - Only for Admin */}
+      {/* Admin Panel - Shows ALL issued books */}
       {activeTab === 'admin' && isAdmin && (
         <div className="admin-section">
           <h2>👑 Admin Control Panel</h2>
           
+          {/* Show issued books count for debugging */}
+          <div className="admin-card" style={{marginBottom: '20px', background: '#e3f2fd'}}>
+            <h3>📊 System Status</h3>
+            <p><strong>Total Issued Books in System:</strong> {issuedBooks.length}</p>
+            <p><strong>Books issued by users:</strong> {issuedBooks.map(b => b.title).join(', ') || 'None'}</p>
+          </div>
+          
           <div className="admin-actions">
             <div className="admin-card">
               <h3>➕ Add New Book</h3>
-              <input type="text" placeholder="Book Title" />
-              <input type="text" placeholder="Author Name" />
-              <input type="text" placeholder="ISBN Number" />
-              <input type="text" placeholder="Category" />
-              <input type="number" placeholder="Quantity" />
+              <input 
+                type="text" 
+                placeholder="Book Title *" 
+                value={newBook.title}
+                onChange={(e) => setNewBook({...newBook, title: e.target.value})}
+              />
+              <input 
+                type="text" 
+                placeholder="Author Name *" 
+                value={newBook.author}
+                onChange={(e) => setNewBook({...newBook, author: e.target.value})}
+              />
+              <input 
+                type="text" 
+                placeholder="ISBN Number *" 
+                value={newBook.isbn}
+                onChange={(e) => setNewBook({...newBook, isbn: e.target.value})}
+              />
+              <input 
+                type="text" 
+                placeholder="Category" 
+                value={newBook.category}
+                onChange={(e) => setNewBook({...newBook, category: e.target.value})}
+              />
+              <input 
+                type="number" 
+                placeholder="Quantity" 
+                value={newBook.quantity}
+                onChange={(e) => setNewBook({...newBook, quantity: parseInt(e.target.value)})}
+              />
               <button onClick={addBook}>📚 Add Book to Library</button>
             </div>
             
             <div className="admin-card">
-              <h3>👥 Manage Users</h3>
-              <button>📋 View All Registered Users</button>
-              <button>🚫 Suspend User Account</button>
-              <button>👑 Make Admin</button>
-              <button>🗑️ Delete User</button>
+              <h3>📊 Currently Issued Books ({issuedBooks.length})</h3>
+              {issuedBooks.length === 0 ? (
+                <p>❌ No books currently issued. Issue a book as a user first!</p>
+              ) : (
+                issuedBooks.map((book) => (
+                  <div key={book.id} style={{borderTop: '1px solid #ddd', marginTop: '10px', paddingTop: '10px'}}>
+                    <p><strong>📖 {book.title}</strong></p>
+                    <p>👤 Issued to: {book.issuedToName}</p>
+                    <p>📧 Email: {book.issuedBy}</p>
+                    <p>📅 Issue Date: {book.issueDate}</p>
+                    <p>⏰ Due Date: {book.dueDate}</p>
+                    <button className="return-btn" style={{marginTop: '5px', padding: '5px 10px'}} onClick={() => returnBook(book.id)}>
+                      ↩️ Return Book
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
             
             <div className="admin-card">
-              <h3>📊 Library Reports</h3>
-              <button>📖 Currently Issued Books</button>
-              <button>⏰ Overdue Books Report</button>
-              <button>📈 Most Popular Books</button>
-              <button>📉 Low Stock Alert</button>
+              <h3>📊 Library Statistics</h3>
+              <p><strong>📚 Total Books:</strong> {books.length}</p>
+              <p><strong>✅ Available Books:</strong> {books.filter(b => b.available === 'true').length}</p>
+              <p><strong>❌ Currently Issued:</strong> {issuedBooks.length}</p>
             </div>
           </div>
           
@@ -338,10 +468,10 @@ function App() {
                 <h4>{book.title}</h4>
                 <p>✍️ {book.author}</p>
                 <p>📚 Quantity: {book.quantity}</p>
-                <p>✅ Available: {book.quantity}</p>
+                <p>Status: {book.available === 'true' ? '🟢 Available' : '🔴 Issued'}</p>
                 <div className="admin-buttons">
-                  <button className="edit-btn">✏️ Edit Book</button>
-                  <button className="delete-btn">🗑️ Delete Book</button>
+                  <button className="edit-btn">✏️ Edit</button>
+                  <button className="delete-btn" onClick={() => deleteBook(book.id)}>🗑️ Delete</button>
                 </div>
               </div>
             ))}
