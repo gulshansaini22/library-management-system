@@ -2,12 +2,6 @@
 
 A full-stack Library Management System built with **React**, **Spring Boot**, and **MySQL**. This system allows users to browse, search, issue, and return books with automatic fine calculation for late returns.
 
-## 👥 Team Contributors
-
-- **Gulshan Saini** - Core Developer (Full Stack Implementation)
-- **Nikita Malik** - Testing & Documentation
-- **Shagun Verma** - UI Assistance & Validation
-
 ## 🚀 Features
 
 ### For Users
